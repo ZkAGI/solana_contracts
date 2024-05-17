@@ -5,68 +5,88 @@ import {
   Transaction,
   TransactionInstruction,
   sendAndConfirmTransaction,
+  Account,
 } from "@solana/web3.js";
+import { serialize } from "borsh";
+import { Buffer } from "buffer";
 
-// Connection to the Solana cluster
 const connection = new Connection("https://api.devnet.solana.com", "confirmed");
 const progId = new PublicKey("Fay317m7Geo3eTzxFJd8EFK1tab8sciSKwDhEib2cArg");
 
 const wallet = Keypair.fromSecretKey(
   Uint8Array.from([
-    53, 201, 129, 78, 216, 92, 188, 182, 221, 56, 8, 158, 2, 64, 252, 100, 223,
-    173, 174, 29, 83, 20, 152, 245, 255, 2, 224, 224, 74, 208, 73, 204, 166,
-    183, 98, 86, 248, 114, 83, 73, 201, 202, 208, 139, 64, 9, 130, 146, 205,
-    147, 72, 225, 244, 174, 102, 78, 78, 60, 20, 210, 242, 13, 136, 124,
+    45, 134, 186, 18, 67, 205, 31, 12, 89, 188, 95, 14, 215, 2, 218, 188, 95,
+    222, 195, 124, 224, 246, 220, 58, 188, 174, 159, 80, 187, 148, 113, 26, 9,
+    36, 120, 57, 190, 48, 158, 152, 109, 243, 222, 194, 142, 254, 82, 208, 79,
+    58, 166, 180, 228, 192, 147, 120, 26, 113, 187, 131, 235, 214, 8, 21,
   ])
 );
 
-// The public key of the GPU registry account
 const gpuRegistryPubkey = new PublicKey(
-  "CDns6TVDnPXsZTxGmMz2PjVK6kM156yuutReTGBsp3to"
+  "cgvYffFMGJbj8Rvicsw6dDHT1dhMpSvE4DNvkSx9WLc"
 );
 
-import { serialize, deserialize, deserializeUnchecked } from "borsh";
-import { Buffer } from "buffer";
-
-class Assignable {
-  constructor(properties) {
-    Object.keys(properties).map((key) => {
-      return (this[key] = properties[key]);
-    });
+class Payload {
+  variant: number;
+  model: string;
+  constructor(variant: number, model: string) {
+    this.variant = variant;
+    this.model = model;
   }
 }
-class Payload extends Assignable {}
+
 const payloadSchema = new Map([
   [
     Payload,
     {
       kind: "struct",
-      fields: [["key", "string"]],
+      fields: [
+        ["variant", "u8"],
+        ["model", "string"],
+      ],
     },
   ],
 ]);
-enum InstructionVariant {
-  InitializeAccount = 0,
-  MintKeypair,
-  TransferKeypair,
-  BurnKeypair,
+
+async function initialize_account(model: string): Promise<string> {
+  const payload = new Payload(0, model);
+  const serializedPayload = Buffer.from(serialize(payloadSchema, payload));
+  const accountPublicKey = new PublicKey(
+    "Dea7vK8jhKqNSV6EaHePiJ5GW4tUQbgutSrGBFuVTxwm"
+  );
+  const data = Buffer.from([0]);
+  const instruction = new TransactionInstruction({
+    data: serializedPayload,
+    keys: [{ pubkey: accountPublicKey, isSigner: false, isWritable: true }],
+    programId: progId,
+  });
+
+  const transactionSignature = await sendAndConfirmTransaction(
+    connection,
+    new Transaction().add(instruction),
+    [wallet],
+    {
+      commitment: "confirmed",
+      preflightCommitment: "confirmed",
+    }
+  );
+  console.log("Transaction Signature =", transactionSignature);
+  return transactionSignature;
 }
 
-async function mintKV(mintKey: string): Promise<string> {
-  // Construct the payload
-  const mint = new Payload({
-    key: mintKey, // 'ts key'
-  });
-  console.log(mint);
+async function registerGPU(model: string): Promise<string> {
+  //  payload for RegisterGpu
+  const payload = new Payload(1, model); // Variant 1 corresponds to RegisterGpu
+  console.log("Payload:", payload);
 
-  // Serialize the payload
-  const mintSerBuf = Buffer.from(serialize(payloadSchema, mint));
+  // payload
+  const serializedPayload = Buffer.from(serialize(payloadSchema, payload));
 
   const instruction = new TransactionInstruction({
-    data: mintSerBuf,
+    data: serializedPayload,
     keys: [
       { pubkey: gpuRegistryPubkey, isSigner: false, isWritable: true },
-      { pubkey: wallet.publicKey, isSigner: false, isWritable: false },
+      { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
     ],
     programId: progId,
   });
@@ -77,15 +97,16 @@ async function mintKV(mintKey: string): Promise<string> {
     new Transaction().add(instruction),
     [wallet],
     {
-      commitment: "singleGossip",
-      preflightCommitment: "singleGossip",
+      commitment: "confirmed",
+      preflightCommitment: "confirmed",
     }
   );
-  console.log("Signature = ", transactionSignature);
+  console.log("Transaction Signature =", transactionSignature);
   return transactionSignature;
 }
 
-const gpuModel = "abc3008";
-mintKV(gpuModel)
-  .then(() => console.log("Registration complete"))
+const gpuModel = "Rtx3030";
+initialize_account(gpuModel);
+registerGPU(gpuModel)
+  .then(() => console.log("GPU registration complete"))
   .catch((error) => console.error("Error registering GPU:", error));
